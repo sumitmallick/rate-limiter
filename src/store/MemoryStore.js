@@ -1,46 +1,30 @@
 export class MemoryStore {
-  #windows = new Map()
-  #stats = new Map()
-  #limit
-  #windowMs
+  #algorithm
+  #config
+  #states = new Map()   // userId → algorithm-specific state
+  #stats  = new Map()   // userId → { allowed, rejected }
   #sweepTimer
 
-  constructor({ limit, windowMs }) {
-    this.#limit = limit
-    this.#windowMs = windowMs
+  constructor({ limit, windowMs, algorithm }) {
+    this.#algorithm = algorithm
+    this.#config    = { limit, windowMs }
     this.#sweepTimer = setInterval(() => this.#sweep(), windowMs * 2)
     this.#sweepTimer.unref()
   }
 
   consume(userId) {
     const now = Date.now()
-    const cutoff = now - this.#windowMs
 
-    if (!this.#windows.has(userId)) this.#windows.set(userId, [])
-    if (!this.#stats.has(userId)) this.#stats.set(userId, { allowed: 0, rejected: 0 })
+    if (!this.#states.has(userId)) this.#states.set(userId, this.#algorithm.initState())
+    if (!this.#stats.has(userId))  this.#stats.set(userId, { allowed: 0, rejected: 0 })
 
-    const window = this.#windows.get(userId)
-    const stats = this.#stats.get(userId)
+    const result = this.#algorithm.consume(this.#states.get(userId), this.#config, now)
+    const counter = this.#stats.get(userId)
 
-    let stale = 0
-    while (stale < window.length && window[stale] <= cutoff) stale++
-    if (stale > 0) window.splice(0, stale)
+    if (result.allowed) counter.allowed++
+    else counter.rejected++
 
-    const resetAt = window.length > 0 ? window[0] + this.#windowMs : now + this.#windowMs
-
-    if (window.length >= this.#limit) {
-      stats.rejected++
-      return { allowed: false, remaining: 0, resetAt }
-    }
-
-    window.push(now)
-    stats.allowed++
-
-    return {
-      allowed: true,
-      remaining: this.#limit - window.length,
-      resetAt,
-    }
+    return result
   }
 
   getStats(userId) {
@@ -57,29 +41,24 @@ export class MemoryStore {
   }
 
   #buildUserStats(userId) {
-    const now = Date.now()
-    const cutoff = now - this.#windowMs
-    const window = this.#windows.get(userId) ?? []
-    const stats = this.#stats.get(userId) ?? { allowed: 0, rejected: 0 }
-    const active = window.filter(ts => ts > cutoff)
-    const resetAt = active.length > 0 ? active[0] + this.#windowMs : now + this.#windowMs
-
+    const now    = Date.now()
+    const state  = this.#states.get(userId) ?? this.#algorithm.initState()
+    const counter = this.#stats.get(userId) ?? { allowed: 0, rejected: 0 }
+    const algoStats = this.#algorithm.buildStats(state, this.#config, now)
     return {
-      allowed: stats.allowed,
-      rejected: stats.rejected,
-      total: stats.allowed + stats.rejected,
-      current_window_count: active.length,
-      remaining: Math.max(0, this.#limit - active.length),
-      window_resets_at: new Date(resetAt).toISOString(),
+      allowed:  counter.allowed,
+      rejected: counter.rejected,
+      total:    counter.allowed + counter.rejected,
+      ...algoStats,
     }
   }
 
   #sweep() {
-    const cutoff = Date.now() - this.#windowMs
-    for (const window of this.#windows.values()) {
-      let stale = 0
-      while (stale < window.length && window[stale] <= cutoff) stale++
-      if (stale > 0) window.splice(0, stale)
+    const now = Date.now()
+    if (this.#algorithm.sweep) {
+      for (const state of this.#states.values()) {
+        this.#algorithm.sweep(state, this.#config, now)
+      }
     }
   }
 

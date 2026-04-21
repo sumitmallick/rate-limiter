@@ -63,7 +63,7 @@ export async function requestRoutes(fastify, { store, config }) {
       if (!result.allowed) {
         return reply.code(429).send({
           error: 'Too Many Requests',
-          message: `Rate limit exceeded. Max ${config.rateLimit.max} requests per minute.`,
+          message: `Rate limit exceeded. Max ${config.rateLimit.max} requests per ${config.rateLimit.windowMs / 1000}s (${config.rateLimit.algorithm ?? 'sliding-window'}).`,
           retry_after: Math.max(0, Math.ceil((result.resetAt - Date.now()) / 1000)),
         })
       }

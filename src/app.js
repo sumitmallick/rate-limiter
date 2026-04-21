@@ -37,7 +37,7 @@ export async function buildApp(overrides = {}) {
       info: {
         title: 'Rate-Limited API Service',
         description:
-          'Per-user sliding window rate limiter. Max 5 requests per user per minute by default.',
+          'Distributed rate limiter with pluggable algorithms (sliding-window, fixed-window, token-bucket, leaky-bucket). Algorithm selected via RATE_LIMIT_ALGORITHM env var.',
         version: '1.0.0',
       },
       tags: [
@@ -68,18 +68,20 @@ export async function buildApp(overrides = {}) {
           200: {
             type: 'object',
             properties: {
-              status: { type: 'string' },
+              status:    { type: 'string' },
               timestamp: { type: 'string' },
-              store: { type: 'string', enum: ['memory', 'redis'] },
+              store:     { type: 'string', enum: ['memory', 'redis'] },
+              algorithm: { type: 'string' },
             },
           },
         },
       },
     },
     async () => ({
-      status: 'ok',
+      status:    'ok',
       timestamp: new Date().toISOString(),
-      store: resolvedConfig.redis?.url ? 'redis' : 'memory',
+      store:     resolvedConfig.redis?.url ? 'redis' : 'memory',
+      algorithm: resolvedConfig.rateLimit.algorithm ?? 'sliding-window',
     })
   )
 
